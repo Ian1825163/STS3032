@@ -9,7 +9,7 @@ public:
   static const uint16_t DEFAULT_TIMEOUT_MS = 20;
   static const uint8_t MAX_STATUS_PARAMS = 32;
   static const int16_t READ_FAILED = -32768;
-  static constexpr float SPEED_UNIT_RPM = 0.732f;
+  static constexpr float SPEED_UNIT_RPM = 0.732f / 50.0f;
   static constexpr float SPEED_UNIT_DEG_PER_SEC = SPEED_UNIT_RPM * 6.0f;
   static constexpr float CURRENT_UNIT_A = 0.0065f;
 
@@ -82,8 +82,8 @@ public:
   struct Feedback {
     uint16_t position_tick; // 0-4095 in single-turn position feedback
     float position_deg;    // position_tick * 360.0 / 4096.0
-    int16_t speed_raw;     // Signed after decoding the direction bit
-    float speed_rpm;       // speed_raw * 0.732 RPM
+    int16_t speed_raw;     // Signed steps/s after decoding the direction bit
+    float speed_rpm;       // speed_raw * (0.732 / 50.0) RPM
     float speed_deg_s;     // speed_rpm * 6.0
     int16_t load_raw;      // Signed after decoding the load direction bit
     float voltage_v;       // Raw * 0.1 V

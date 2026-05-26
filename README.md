@@ -78,6 +78,17 @@ x             stop velocity/sweep
 
 Write commands use write-ack disabled by default, so `sent` means the Teensy wrote the packet to the servo bus. Use `p` or `f` to confirm the receive path works.
 
+## Motion Limits From Docs
+
+These values are from `docs/磁编码SMS_STS-内存表解析_220328(2).xlsx`.
+
+| Register | Name | Range | Unit / Meaning | Note |
+| --- | --- | --- | --- | --- |
+| `0x2E` | Run speed | `-32766` to `32766` | steps/s | `50 steps/s = 0.732 RPM`, so `1 raw ~= 0.01464 RPM ~= 0.08784 deg/s`. Sign controls direction in velocity mode. |
+| `0x29` | Acceleration | `0` to `254` | `100 steps/s^2` | Example: `10` means `1000 steps/s^2`. |
+| `0x10` | Max torque | `0` to `1000` | `0.001` of stall torque | EEPROM setting. `1000 = 100%`; copied to torque limit on power-up. |
+| `0x30` | Torque limit | `0` to `1000` | `0.001` of max torque | SRAM runtime limit. `1000 = 100%`; can be changed by program. |
+
 ## Register Notes
 
 Mode `2` is exposed as `MODE_OPEN_LOOP` because STS3032 documents it as open-loop motor mode, not direct PWM control.

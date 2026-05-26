@@ -20,7 +20,7 @@ static const uint16_t PACKET_TIMEOUT_MS = 30;
 static const uint16_t CENTER_TICK = 2048;
 static const uint16_t DEFAULT_POSITION_SPEED = 1000;
 static const uint8_t DEFAULT_ACCELERATION = 0;
-static const float SPEED_UNIT_RPM = 0.732f;
+static const float SPEED_UNIT_RPM = 0.732f / 50.0f;
 static const float SPEED_UNIT_DEG_PER_SEC = SPEED_UNIT_RPM * 6.0f;
 static const float CURRENT_UNIT_A = 0.0065f;
 static const float SWEEP_AMPLITUDE_DEG = 90.0f; // -90 to +90 = 180 deg total
