@@ -1,0 +1,9 @@
+.pio/
+.vscode/
+build/
+*.tmp
+*.log
+*.exe
+*.zip
+__MACOSX/
+._*

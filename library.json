@@ -1,0 +1,23 @@
+{
+  "name": "STS3032",
+  "version": "0.1.0",
+  "description": "Arduino packet and servo API library for Feetech STS3032 serial servos.",
+  "keywords": [
+    "sts3032",
+    "feetech",
+    "servo",
+    "serial",
+    "rs485"
+  ],
+  "authors": [
+    {
+      "name": "Yian Yang"
+    }
+  ],
+  "frameworks": "arduino",
+  "platforms": "*",
+  "headers": "STS3032.h",
+  "build": {
+    "srcDir": "src"
+  }
+}
