@@ -25,6 +25,7 @@ static const float SPEED_UNIT_DEG_PER_SEC = SPEED_UNIT_RPM * 6.0f;
 static const float CURRENT_UNIT_A = 0.0065f;
 static const float SWEEP_AMPLITUDE_DEG = 90.0f; // -90 to +90 = 180 deg total
 static const uint32_t SWEEP_INTERVAL_MS = 1200;
+static const uint32_t COMMAND_IDLE_PROCESS_MS = 250;
 
 static const bool RUN_CHECKSUM_ON_BOOT = true;
 static const bool RUN_READ_TESTS_ON_BOOT = false;
@@ -40,6 +41,8 @@ unsigned long lastSweepMs = 0;
 
 char inputLine[96];
 uint8_t inputLineLength = 0;
+unsigned long lastInputByteMs = 0;
+unsigned long lastCommandEndMs = 0;
 
 long clampLong(long value, long low, long high) {
   if (value < low) {
@@ -626,7 +629,7 @@ void printHelp() {
   Serial.println("  x                 stop velocity/sweep");
   Serial.println("  y                 SYNC_WRITE current position as goal");
   Serial.println();
-  Serial.println("Set Serial Monitor line ending to Newline for commands with args.");
+  Serial.println("Newline is best, but No line ending also works after a short idle.");
   Serial.println("Note: write commands print 'sent' even if readback wiring is not working.");
   Serial.println();
 }
@@ -734,27 +737,41 @@ void processCommandLine(char *line) {
   }
 }
 
+void processBufferedInput() {
+  if (inputLineLength == 0) {
+    return;
+  }
+
+  inputLine[inputLineLength] = '\0';
+  Serial.print("RX command: ");
+  Serial.println(inputLine);
+  processCommandLine(inputLine);
+  inputLineLength = 0;
+  lastCommandEndMs = millis();
+}
+
 void handleSerialInput() {
   while (Serial.available() > 0) {
     const char c = static_cast<char>(Serial.read());
 
-    if (c == '\r') {
-      continue;
-    }
-
-    if (c == '\n') {
-      inputLine[inputLineLength] = '\0';
-      processCommandLine(inputLine);
-      inputLineLength = 0;
+    if (c == '\r' || c == '\n') {
+      processBufferedInput();
       return;
     }
 
     if (inputLineLength < sizeof(inputLine) - 1) {
       inputLine[inputLineLength++] = c;
+      lastInputByteMs = millis();
     } else {
       inputLineLength = 0;
       Serial.println("Input line too long");
     }
+  }
+
+  if (inputLineLength > 0 &&
+      millis() - lastInputByteMs >= COMMAND_IDLE_PROCESS_MS &&
+      millis() - lastCommandEndMs >= COMMAND_IDLE_PROCESS_MS) {
+    processBufferedInput();
   }
 }
 
