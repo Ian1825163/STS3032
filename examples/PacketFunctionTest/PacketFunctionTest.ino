@@ -236,6 +236,10 @@ bool readFeedbackOnce() {
   Serial.print(feedback.position_deg, 2);
   Serial.print(" speed_raw=");
   Serial.print(feedback.speed_raw);
+  Serial.print(" speed_rpm=");
+  Serial.print(feedback.speed_rpm, 2);
+  Serial.print(" speed_deg_s=");
+  Serial.print(feedback.speed_deg_s, 1);
   Serial.print(" load_raw=");
   Serial.print(feedback.load_raw);
   Serial.print(" voltage_v=");
@@ -250,6 +254,90 @@ bool readFeedbackOnce() {
   printHexByte(feedback.status);
   printStatusBits(feedback.status);
   Serial.println();
+  return true;
+}
+
+bool readPositionTest() {
+  Serial.println();
+  Serial.println("READ position");
+  const uint8_t readParams[2] = {STS3032::REG_PRESENT_POSITION_L, 2};
+  printPacketPreview(selectedServoId, STS3032::INST_READ, readParams,
+                     sizeof(readParams));
+
+  uint16_t positionTick = 0;
+  if (!servo.readPosition(selectedServoId, positionTick)) {
+    Serial.println("READ position failed");
+    return false;
+  }
+
+  Serial.print("position_tick=");
+  Serial.print(positionTick);
+  Serial.print(" position_deg=");
+  Serial.println(positionTick * (360.0f / 4096.0f), 2);
+  return true;
+}
+
+bool readVelocityTest() {
+  Serial.println();
+  Serial.println("READ angular velocity");
+  const uint8_t readParams[2] = {STS3032::REG_PRESENT_SPEED_L, 2};
+  printPacketPreview(selectedServoId, STS3032::INST_READ, readParams,
+                     sizeof(readParams));
+
+  int16_t speedRaw = 0;
+  if (!servo.readVelocity(selectedServoId, speedRaw)) {
+    Serial.println("READ angular velocity failed");
+    return false;
+  }
+
+  Serial.print("speed_raw=");
+  Serial.print(speedRaw);
+  Serial.print(" speed_rpm=");
+  Serial.print(STS3032::speedRawToRpm(speedRaw), 2);
+  Serial.print(" speed_deg_s=");
+  Serial.println(STS3032::speedRawToDegPerSecond(speedRaw), 1);
+  return true;
+}
+
+bool readCurrentTest() {
+  Serial.println();
+  Serial.println("READ current");
+  const uint8_t readParams[2] = {STS3032::REG_PRESENT_CURRENT_L, 2};
+  printPacketPreview(selectedServoId, STS3032::INST_READ, readParams,
+                     sizeof(readParams));
+
+  uint8_t data[2] = {0, 0};
+  if (!servo.readBytes(selectedServoId, STS3032::REG_PRESENT_CURRENT_L, data,
+                       sizeof(data))) {
+    Serial.println("READ current failed");
+    return false;
+  }
+
+  const int16_t currentRaw =
+      STS3032::decodeSigned15(static_cast<uint16_t>(data[0]) |
+                              (static_cast<uint16_t>(data[1]) << 8));
+  Serial.print("current_raw=");
+  Serial.print(currentRaw);
+  Serial.print(" current_a=");
+  Serial.println(STS3032::currentRawToAmp(currentRaw), 3);
+  return true;
+}
+
+bool readTemperatureTest() {
+  Serial.println();
+  Serial.println("READ temperature");
+  const uint8_t readParams[2] = {STS3032::REG_PRESENT_TEMPERATURE, 1};
+  printPacketPreview(selectedServoId, STS3032::INST_READ, readParams,
+                     sizeof(readParams));
+
+  uint8_t temperatureC = 0;
+  if (!servo.readTemperature(selectedServoId, temperatureC)) {
+    Serial.println("READ temperature failed");
+    return false;
+  }
+
+  Serial.print("temperature_c=");
+  Serial.println(temperatureC);
   return true;
 }
 
@@ -303,8 +391,8 @@ bool torqueOffSelected() {
   return servo.torqueOff(selectedServoId);
 }
 
-bool writeVelocitySpeed(int16_t signedSpeed) {
-  const uint16_t speedRaw = STS3032::encodeSigned15(signedSpeed);
+bool writeVelocitySpeedRaw(int16_t signedSpeedRaw) {
+  const uint16_t speedRaw = STS3032::encodeSigned15(signedSpeedRaw);
   const uint8_t params[3] = {
       STS3032::REG_GOAL_SPEED_L,
       static_cast<uint8_t>(speedRaw & 0xFF),
@@ -312,8 +400,10 @@ bool writeVelocitySpeed(int16_t signedSpeed) {
   };
 
   Serial.println();
-  Serial.print("WRITE velocity speed=");
-  Serial.println(signedSpeed);
+  Serial.print("WRITE velocity speed_raw=");
+  Serial.print(signedSpeedRaw);
+  Serial.print(" speed_deg_s=");
+  Serial.println(STS3032::speedRawToDegPerSecond(signedSpeedRaw), 1);
   printPacketPreview(selectedServoId, STS3032::INST_WRITE, params,
                      sizeof(params));
 
@@ -380,11 +470,21 @@ bool commandPositionTick(uint16_t tick, uint16_t speed, uint8_t acceleration) {
   return true;
 }
 
-bool commandVelocity(int16_t signedSpeed) {
+bool commandVelocityRaw(int16_t signedSpeedRaw) {
   sweepEnabled = false;
   setVelocityMode();
   torqueOnSelected();
-  return writeVelocitySpeed(signedSpeed);
+  return writeVelocitySpeedRaw(signedSpeedRaw);
+}
+
+bool commandVelocityDegPerSecond(float speedDegPerSecond) {
+  const int16_t speedRaw =
+      STS3032::degPerSecondToSpeedRaw(speedDegPerSecond);
+  Serial.print("angular velocity command deg_s=");
+  Serial.print(speedDegPerSecond, 1);
+  Serial.print(" -> raw=");
+  Serial.println(speedRaw);
+  return commandVelocityRaw(speedRaw);
 }
 
 bool syncWriteHoldCurrentPosition() {
@@ -446,7 +546,7 @@ void startSweep(uint16_t speed, uint8_t acceleration) {
 
 void stopMotion() {
   sweepEnabled = false;
-  writeVelocitySpeed(0);
+  writeVelocitySpeedRaw(0);
   setPositionMode();
   Serial.println("Stop command sent");
 }
@@ -477,7 +577,11 @@ void printHelp() {
   Serial.println("  k                 checksum self-test");
   Serial.println("  p                 ping selected servo");
   Serial.println("  i                 read ID/baud/response registers");
-  Serial.println("  f                 read feedback block");
+  Serial.println("  f                 read full feedback block");
+  Serial.println("  fp                read position only");
+  Serial.println("  fv                read angular velocity only");
+  Serial.println("  fc                read current only");
+  Serial.println("  ft                read temperature only");
   Serial.println("  e                 torque on");
   Serial.println("  q                 torque off");
   Serial.println("  m                 write position mode");
@@ -486,7 +590,8 @@ void printHelp() {
   Serial.println("  a <deg> <speed> [accel]");
   Serial.println("                    degree offset from center, example: a 90 800");
   Serial.println("  c [speed]         center position, example: c 800");
-  Serial.println("  v <signed_speed>  velocity mode spin, example: v 1000 or v -1000");
+  Serial.println("  v <deg_s>         velocity mode angular speed, example: v 360");
+  Serial.println("  vr <raw>          velocity mode raw speed, example: vr 1000");
   Serial.println("  w <speed> [accel] 180 deg sweep around center");
   Serial.println("  x                 stop velocity/sweep");
   Serial.println("  y                 SYNC_WRITE current position as goal");
@@ -525,6 +630,14 @@ void processCommandLine(char *line) {
     readIdentityBlock();
   } else if (strcmp(command, "f") == 0) {
     readFeedbackOnce();
+  } else if (strcmp(command, "fp") == 0) {
+    readPositionTest();
+  } else if (strcmp(command, "fv") == 0) {
+    readVelocityTest();
+  } else if (strcmp(command, "fc") == 0) {
+    readCurrentTest();
+  } else if (strcmp(command, "ft") == 0) {
+    readTemperatureTest();
   } else if (strcmp(command, "e") == 0) {
     torqueOnSelected();
   } else if (strcmp(command, "q") == 0) {
@@ -563,12 +676,19 @@ void processCommandLine(char *line) {
     commandPositionTick(CENTER_TICK, clampPositionSpeed(speed),
                         clampAcceleration(acceleration));
   } else if (strcmp(command, "v") == 0) {
-    long signedSpeed = 0;
-    if (!parseLongToken(strtok(nullptr, " ,\t"), signedSpeed)) {
-      Serial.println("Usage: v <signed_speed>, example: v 1000");
+    float speedDegPerSecond = 0.0f;
+    if (!parseFloatToken(strtok(nullptr, " ,\t"), speedDegPerSecond)) {
+      Serial.println("Usage: v <deg_s>, example: v 360");
       return;
     }
-    commandVelocity(clampSignedSpeed(signedSpeed));
+    commandVelocityDegPerSecond(speedDegPerSecond);
+  } else if (strcmp(command, "vr") == 0) {
+    long signedSpeed = 0;
+    if (!parseLongToken(strtok(nullptr, " ,\t"), signedSpeed)) {
+      Serial.println("Usage: vr <signed_speed_raw>, example: vr 1000");
+      return;
+    }
+    commandVelocityRaw(clampSignedSpeed(signedSpeed));
   } else if (strcmp(command, "w") == 0) {
     long speed = DEFAULT_POSITION_SPEED;
     long acceleration = DEFAULT_ACCELERATION;

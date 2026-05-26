@@ -5,8 +5,8 @@ Arduino/PlatformIO library for Feetech STS3032 serial servos.
 ## Layers
 
 - Packet layer: `sendPacket()`, `readStatusPacket()`, `checksum()`, `writeByte()`, `writeWord()`, `readBytes()`
-- Servo API layer: `setPosition()`, `setPositionSpeed()`, `readPosition()`, `readFeedback()`, `torqueOn()`, `torqueOff()`, `setMode()`
-- Feedback decode: `position_tick`, `position_deg`, `speed_raw`, `load_raw`, `voltage_v`, `temperature_c`, `status`, `moving`, `current_a`
+- Servo API layer: `setPosition()`, `setPositionSpeed()`, `readPosition()`, `readVelocity()`, `readAngularVelocity()`, `readCurrent()`, `readTemperature()`, `readFeedback()`, `torqueOn()`, `torqueOff()`, `setMode()`
+- Feedback decode: `position_tick`, `position_deg`, `speed_raw`, `speed_rpm`, `speed_deg_s`, `load_raw`, `voltage_v`, `temperature_c`, `status`, `moving`, `current_a`
 
 ## Quick Start
 
@@ -31,6 +31,8 @@ void loop() {
     Serial.print(feedback.position_tick);
     Serial.print(" deg=");
     Serial.print(feedback.position_deg);
+    Serial.print(" speed_deg_s=");
+    Serial.print(feedback.speed_deg_s);
     Serial.print(" voltage=");
     Serial.println(feedback.voltage_v);
   }
@@ -59,12 +61,17 @@ Open the USB serial monitor at `115200` baud and set line ending to `Newline`. U
 ```text
 id 3          select servo ID 3
 p             ping selected servo
-f             read feedback block
+f             read full feedback block
+fp            read position only
+fv            read angular velocity only
+fc            read current only
+ft            read temperature only
 t 2048 1000   set absolute position tick and speed
 a 90 800      set +90 degree offset from center at speed 800
 c 800         return to center
-v 1000        velocity mode continuous rotation
-v -1000       velocity mode opposite direction
+v 360         velocity mode at +360 deg/s
+v -360        velocity mode at -360 deg/s
+vr 1000       velocity mode raw speed command
 w 800         180 degree sweep around center
 x             stop velocity/sweep
 ```

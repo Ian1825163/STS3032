@@ -24,6 +24,8 @@ void loop() {
     Serial.print(feedback.position_deg, 1);
     Serial.print(" speed_raw=");
     Serial.print(feedback.speed_raw);
+    Serial.print(" speed_deg_s=");
+    Serial.print(feedback.speed_deg_s, 1);
     Serial.print(" load_raw=");
     Serial.print(feedback.load_raw);
     Serial.print(" voltage_v=");

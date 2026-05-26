@@ -9,6 +9,9 @@ public:
   static const uint16_t DEFAULT_TIMEOUT_MS = 20;
   static const uint8_t MAX_STATUS_PARAMS = 32;
   static const int16_t READ_FAILED = -32768;
+  static constexpr float SPEED_UNIT_RPM = 0.732f;
+  static constexpr float SPEED_UNIT_DEG_PER_SEC = SPEED_UNIT_RPM * 6.0f;
+  static constexpr float CURRENT_UNIT_A = 0.0065f;
 
   enum Instruction : uint8_t {
     INST_PING = 0x01,
@@ -80,6 +83,8 @@ public:
     uint16_t position_tick; // 0-4095 in single-turn position feedback
     float position_deg;    // position_tick * 360.0 / 4096.0
     int16_t speed_raw;     // Signed after decoding the direction bit
+    float speed_rpm;       // speed_raw * 0.732 RPM
+    float speed_deg_s;     // speed_rpm * 6.0
     int16_t load_raw;      // Signed after decoding the load direction bit
     float voltage_v;       // Raw * 0.1 V
     uint8_t temperature_c; // Celsius
@@ -118,6 +123,10 @@ public:
   bool readPosition(uint8_t id, uint16_t &positionTick);
   bool readPosition(uint8_t id, int16_t &positionTick);
   int16_t readPosition(uint8_t id);
+  bool readVelocity(uint8_t id, int16_t &speedRaw);
+  bool readAngularVelocity(uint8_t id, float &speedDegPerSecond);
+  bool readCurrent(uint8_t id, float &currentA);
+  bool readTemperature(uint8_t id, uint8_t &temperatureC);
   bool readFeedback(uint8_t id, Feedback &feedback);
   bool torqueOn(uint8_t id);
   bool torqueOff(uint8_t id);
@@ -127,6 +136,10 @@ public:
   static uint16_t encodeSigned15(int16_t value);
   static int16_t decodeSigned15(uint16_t raw);
   static int16_t decodeSigned10(uint16_t raw);
+  static float speedRawToRpm(int16_t speedRaw);
+  static float speedRawToDegPerSecond(int16_t speedRaw);
+  static int16_t degPerSecondToSpeedRaw(float speedDegPerSecond);
+  static float currentRawToAmp(int16_t currentRaw);
 
 private:
   static const uint8_t MAX_WRITE_DATA = 32;

@@ -1,5 +1,7 @@
 #include "STS3032.h"
 
+#include <math.h>
+
 STS3032::StatusPacket::StatusPacket()
     : id(0), length(0), error(0), parameter_length(0), checksum(0) {
   for (uint8_t i = 0; i < MAX_STATUS_PARAMS; ++i) {
@@ -8,9 +10,9 @@ STS3032::StatusPacket::StatusPacket()
 }
 
 STS3032::Feedback::Feedback()
-    : position_tick(0), position_deg(0.0f), speed_raw(0), load_raw(0),
-      voltage_v(0.0f), temperature_c(0), status(0), moving(false),
-      current_a(0.0f) {}
+    : position_tick(0), position_deg(0.0f), speed_raw(0), speed_rpm(0.0f),
+      speed_deg_s(0.0f), load_raw(0), voltage_v(0.0f), temperature_c(0),
+      status(0), moving(false), current_a(0.0f) {}
 
 STS3032::STS3032()
     : _serial(nullptr), _directionPin(-1),
@@ -246,6 +248,42 @@ int16_t STS3032::readPosition(uint8_t id) {
   return positionTick;
 }
 
+bool STS3032::readVelocity(uint8_t id, int16_t &speedRaw) {
+  uint8_t data[2] = {0, 0};
+  if (!readBytes(id, REG_PRESENT_SPEED_L, data, sizeof(data))) {
+    return false;
+  }
+  speedRaw = decodeSigned15(makeWord(data[0], data[1]));
+  return true;
+}
+
+bool STS3032::readAngularVelocity(uint8_t id, float &speedDegPerSecond) {
+  int16_t speedRaw = 0;
+  if (!readVelocity(id, speedRaw)) {
+    return false;
+  }
+  speedDegPerSecond = speedRawToDegPerSecond(speedRaw);
+  return true;
+}
+
+bool STS3032::readCurrent(uint8_t id, float &currentA) {
+  uint8_t data[2] = {0, 0};
+  if (!readBytes(id, REG_PRESENT_CURRENT_L, data, sizeof(data))) {
+    return false;
+  }
+  currentA = currentRawToAmp(decodeSigned15(makeWord(data[0], data[1])));
+  return true;
+}
+
+bool STS3032::readTemperature(uint8_t id, uint8_t &temperatureC) {
+  uint8_t data = 0;
+  if (!readBytes(id, REG_PRESENT_TEMPERATURE, &data, 1)) {
+    return false;
+  }
+  temperatureC = data;
+  return true;
+}
+
 bool STS3032::readFeedback(uint8_t id, Feedback &feedback) {
   uint8_t data[15] = {0};
   if (!readBytes(id, REG_PRESENT_POSITION_L, data, sizeof(data))) {
@@ -255,12 +293,15 @@ bool STS3032::readFeedback(uint8_t id, Feedback &feedback) {
   feedback.position_tick = makeWord(data[0], data[1]);
   feedback.position_deg = feedback.position_tick * (360.0f / 4096.0f);
   feedback.speed_raw = decodeSigned15(makeWord(data[2], data[3]));
+  feedback.speed_rpm = speedRawToRpm(feedback.speed_raw);
+  feedback.speed_deg_s = speedRawToDegPerSecond(feedback.speed_raw);
   feedback.load_raw = decodeSigned10(makeWord(data[4], data[5]));
   feedback.voltage_v = data[6] * 0.1f;
   feedback.temperature_c = data[7];
   feedback.status = data[9];
   feedback.moving = data[10] != 0;
-  feedback.current_a = decodeSigned15(makeWord(data[13], data[14])) * 0.0065f;
+  feedback.current_a =
+      currentRawToAmp(decodeSigned15(makeWord(data[13], data[14])));
   return true;
 }
 
@@ -298,6 +339,29 @@ int16_t STS3032::decodeSigned15(uint16_t raw) {
 int16_t STS3032::decodeSigned10(uint16_t raw) {
   const int16_t magnitude = static_cast<int16_t>(raw & 0x03FF);
   return (raw & 0x0400) ? -magnitude : magnitude;
+}
+
+float STS3032::speedRawToRpm(int16_t speedRaw) {
+  return speedRaw * SPEED_UNIT_RPM;
+}
+
+float STS3032::speedRawToDegPerSecond(int16_t speedRaw) {
+  return speedRaw * SPEED_UNIT_DEG_PER_SEC;
+}
+
+int16_t STS3032::degPerSecondToSpeedRaw(float speedDegPerSecond) {
+  const long raw = lroundf(speedDegPerSecond / SPEED_UNIT_DEG_PER_SEC);
+  if (raw > 32766) {
+    return 32766;
+  }
+  if (raw < -32766) {
+    return -32766;
+  }
+  return static_cast<int16_t>(raw);
+}
+
+float STS3032::currentRawToAmp(int16_t currentRaw) {
+  return currentRaw * CURRENT_UNIT_A;
 }
 
 void STS3032::setTxMode() {
