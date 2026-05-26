@@ -143,16 +143,20 @@ public:
 
 private:
   static const uint8_t MAX_WRITE_DATA = 32;
+  static const uint16_t MAX_PACKET_BYTES = 259;
 
   Stream *_serial;
   int8_t _directionPin;
   uint16_t _timeoutMs;
   bool _writeAck;
+  uint8_t _lastTxPacket[MAX_PACKET_BYTES];
+  uint16_t _lastTxPacketLength;
 
   void setTxMode();
   void setRxMode();
   void clearRx();
   bool readByteTimed(uint8_t &value, unsigned long deadline);
+  bool isLastTxEcho(const StatusPacket &packet) const;
   bool writeData(uint8_t id, uint8_t address, const uint8_t *data,
                  uint8_t length);
   static uint16_t makeWord(uint8_t low, uint8_t high);

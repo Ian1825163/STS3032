@@ -16,7 +16,12 @@ STS3032::Feedback::Feedback()
 
 STS3032::STS3032()
     : _serial(nullptr), _directionPin(-1),
-      _timeoutMs(DEFAULT_TIMEOUT_MS), _writeAck(false) {}
+      _timeoutMs(DEFAULT_TIMEOUT_MS), _writeAck(false),
+      _lastTxPacketLength(0) {
+  for (uint16_t i = 0; i < MAX_PACKET_BYTES; ++i) {
+    _lastTxPacket[i] = 0;
+  }
+}
 
 STS3032::STS3032(Stream &serial, int8_t directionPin) : STS3032() {
   begin(serial, directionPin);
@@ -70,21 +75,24 @@ bool STS3032::sendPacket(uint8_t id, uint8_t instruction,
   clearRx();
   setTxMode();
 
-  size_t written = 0;
-  written += _serial->write(0xFF);
-  written += _serial->write(0xFF);
-  written += _serial->write(id);
-  written += _serial->write(length);
-  written += _serial->write(instruction);
+  uint16_t packetLength = 0;
+  _lastTxPacket[packetLength++] = 0xFF;
+  _lastTxPacket[packetLength++] = 0xFF;
+  _lastTxPacket[packetLength++] = id;
+  _lastTxPacket[packetLength++] = length;
+  _lastTxPacket[packetLength++] = instruction;
   for (uint8_t i = 0; i < parameterLength; ++i) {
-    written += _serial->write(parameters[i]);
+    _lastTxPacket[packetLength++] = parameters[i];
   }
-  written += _serial->write(packetChecksum);
+  _lastTxPacket[packetLength++] = packetChecksum;
+  _lastTxPacketLength = packetLength;
+
+  const size_t written = _serial->write(_lastTxPacket, packetLength);
 
   _serial->flush();
   setRxMode();
 
-  return written == static_cast<size_t>(parameterLength + 6);
+  return written == packetLength;
 }
 
 bool STS3032::readStatusPacket(StatusPacket &packet, uint16_t timeoutMs) {
@@ -97,51 +105,64 @@ bool STS3032::readStatusPacket(StatusPacket &packet, uint16_t timeoutMs) {
   }
 
   const unsigned long deadline = millis() + timeoutMs;
-  uint8_t previous = 0;
-  uint8_t current = 0;
-  bool foundHeader = false;
 
-  while (readByteTimed(current, deadline)) {
-    if (previous == 0xFF && current == 0xFF) {
-      foundHeader = true;
-      break;
+  while (static_cast<long>(millis() - deadline) < 0) {
+    uint8_t previous = 0;
+    uint8_t current = 0;
+    bool foundHeader = false;
+
+    while (readByteTimed(current, deadline)) {
+      if (previous == 0xFF && current == 0xFF) {
+        foundHeader = true;
+        break;
+      }
+      previous = current;
     }
-    previous = current;
-  }
 
-  if (!foundHeader) {
-    return false;
-  }
-
-  if (!readByteTimed(packet.id, deadline) ||
-      !readByteTimed(packet.length, deadline) ||
-      !readByteTimed(packet.error, deadline)) {
-    return false;
-  }
-
-  if (packet.length < 2) {
-    return false;
-  }
-
-  packet.parameter_length = packet.length - 2;
-  if (packet.parameter_length > MAX_STATUS_PARAMS) {
-    return false;
-  }
-
-  for (uint8_t i = 0; i < packet.parameter_length; ++i) {
-    if (!readByteTimed(packet.parameters[i], deadline)) {
+    if (!foundHeader) {
       return false;
     }
+
+    if (!readByteTimed(packet.id, deadline) ||
+        !readByteTimed(packet.length, deadline) ||
+        !readByteTimed(packet.error, deadline)) {
+      return false;
+    }
+
+    if (packet.length < 2) {
+      return false;
+    }
+
+    packet.parameter_length = packet.length - 2;
+    if (packet.parameter_length > MAX_STATUS_PARAMS) {
+      return false;
+    }
+
+    for (uint8_t i = 0; i < packet.parameter_length; ++i) {
+      if (!readByteTimed(packet.parameters[i], deadline)) {
+        return false;
+      }
+    }
+
+    if (!readByteTimed(packet.checksum, deadline)) {
+      return false;
+    }
+
+    const uint8_t expected =
+        checksum(packet.id, packet.length, packet.error, packet.parameters,
+                 packet.parameter_length);
+    if (packet.checksum != expected) {
+      return false;
+    }
+
+    if (isLastTxEcho(packet)) {
+      continue;
+    }
+
+    return true;
   }
 
-  if (!readByteTimed(packet.checksum, deadline)) {
-    return false;
-  }
-
-  const uint8_t expected =
-      checksum(packet.id, packet.length, packet.error, packet.parameters,
-               packet.parameter_length);
-  return packet.checksum == expected;
+  return false;
 }
 
 bool STS3032::writeByte(uint8_t id, uint8_t address, uint8_t value) {
@@ -398,6 +419,27 @@ bool STS3032::readByteTimed(uint8_t &value, unsigned long deadline) {
     yield();
   }
   return false;
+}
+
+bool STS3032::isLastTxEcho(const StatusPacket &packet) const {
+  const uint16_t packetLength = static_cast<uint16_t>(packet.length) + 4;
+  if (packetLength != _lastTxPacketLength || packetLength < 6) {
+    return false;
+  }
+
+  if (_lastTxPacket[0] != 0xFF || _lastTxPacket[1] != 0xFF ||
+      _lastTxPacket[2] != packet.id || _lastTxPacket[3] != packet.length ||
+      _lastTxPacket[4] != packet.error) {
+    return false;
+  }
+
+  for (uint8_t i = 0; i < packet.parameter_length; ++i) {
+    if (_lastTxPacket[5 + i] != packet.parameters[i]) {
+      return false;
+    }
+  }
+
+  return _lastTxPacket[5 + packet.parameter_length] == packet.checksum;
 }
 
 bool STS3032::writeData(uint8_t id, uint8_t address, const uint8_t *data,

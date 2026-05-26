@@ -16,6 +16,8 @@ static const uint32_t USB_BAUD = 115200;
 static const uint32_t SERVO_BAUD = STS3032::DEFAULT_BAUDRATE;
 static const int8_t DIRECTION_PIN = -1;
 static const uint16_t PACKET_TIMEOUT_MS = 30;
+static const uint16_t RAW_RX_WINDOW_MS = 60;
+static const uint8_t RAW_RX_MAX_BYTES = 64;
 
 static const uint16_t CENTER_TICK = 2048;
 static const uint16_t DEFAULT_POSITION_SPEED = 1000;
@@ -199,6 +201,71 @@ void checksumSelfTest() {
   Serial.print("  READ present block checksum expected B1, got ");
   printHexByte(readChecksum);
   Serial.println(readChecksum == 0xB1 ? " OK" : " FAIL");
+}
+
+void printRawRxWindow(uint16_t windowMs) {
+  Serial.print("RAW RX ");
+  Serial.print(windowMs);
+  Serial.print(" ms:");
+
+  uint8_t count = 0;
+  const unsigned long deadline = millis() + windowMs;
+
+  while (static_cast<long>(millis() - deadline) < 0) {
+    while (STS3032_SERVO_SERIAL.available() > 0) {
+      const int value = STS3032_SERVO_SERIAL.read();
+      if (value < 0) {
+        continue;
+      }
+
+      Serial.print(' ');
+      printHexByte(static_cast<uint8_t>(value));
+      ++count;
+
+      if (count >= RAW_RX_MAX_BYTES) {
+        Serial.print(" ...");
+        Serial.println();
+        return;
+      }
+    }
+    yield();
+  }
+
+  if (count == 0) {
+    Serial.print(" <none>");
+  }
+  Serial.println();
+}
+
+bool rawPingRxTest() {
+  Serial.println();
+  Serial.println("RAW PING RX test");
+  printPacketPreview(selectedServoId, STS3032::INST_PING, nullptr, 0);
+
+  if (!servo.sendPacket(selectedServoId, STS3032::INST_PING)) {
+    Serial.println("PING send failed");
+    return false;
+  }
+
+  printRawRxWindow(RAW_RX_WINDOW_MS);
+  return true;
+}
+
+bool rawIdentityRxTest() {
+  Serial.println();
+  Serial.println("RAW READ identity RX test");
+  const uint8_t readParams[2] = {STS3032::REG_ID, 4};
+  printPacketPreview(selectedServoId, STS3032::INST_READ, readParams,
+                     sizeof(readParams));
+
+  if (!servo.sendPacket(selectedServoId, STS3032::INST_READ, readParams,
+                        sizeof(readParams))) {
+    Serial.println("READ send failed");
+    return false;
+  }
+
+  printRawRxWindow(RAW_RX_WINDOW_MS);
+  return true;
 }
 
 bool pingServo() {
@@ -406,6 +473,32 @@ bool setVelocityMode() {
   return true;
 }
 
+bool writeResponseLevel(uint8_t level) {
+  Serial.println();
+  Serial.println("WRITE response level");
+  Serial.println("level 0=no status, 1=read only, 2=read/write");
+
+  const uint8_t unlockParams[2] = {STS3032::REG_LOCK, 0};
+  printPacketPreview(selectedServoId, STS3032::INST_WRITE, unlockParams,
+                     sizeof(unlockParams));
+  servo.writeByte(selectedServoId, STS3032::REG_LOCK, 0);
+  delay(20);
+
+  const uint8_t levelParams[2] = {STS3032::REG_RESPONSE_LEVEL, level};
+  printPacketPreview(selectedServoId, STS3032::INST_WRITE, levelParams,
+                     sizeof(levelParams));
+  servo.writeByte(selectedServoId, STS3032::REG_RESPONSE_LEVEL, level);
+  delay(20);
+
+  const uint8_t lockParams[2] = {STS3032::REG_LOCK, 1};
+  printPacketPreview(selectedServoId, STS3032::INST_WRITE, lockParams,
+                     sizeof(lockParams));
+  servo.writeByte(selectedServoId, STS3032::REG_LOCK, 1);
+
+  Serial.println("Response level write sequence sent. Try rp, i, or f next.");
+  return true;
+}
+
 bool torqueOnSelected() {
   Serial.println();
   Serial.println("WRITE torque=on");
@@ -609,6 +702,9 @@ void printHelp() {
   Serial.println("  id <n>            select servo ID, example: id 3");
   Serial.println("  k                 checksum self-test");
   Serial.println("  p                 ping selected servo");
+  Serial.println("  rp                raw RX after ping");
+  Serial.println("  ri                raw RX after identity read");
+  Serial.println("  rl <0|1|2>        write response level, try rl 1 or rl 2");
   Serial.println("  i                 read ID/baud/response registers");
   Serial.println("  f                 read full feedback block");
   Serial.println("  fp                read position only");
@@ -659,6 +755,18 @@ void processCommandLine(char *line) {
     checksumSelfTest();
   } else if (strcmp(command, "p") == 0) {
     pingServo();
+  } else if (strcmp(command, "rp") == 0) {
+    rawPingRxTest();
+  } else if (strcmp(command, "ri") == 0) {
+    rawIdentityRxTest();
+  } else if (strcmp(command, "rl") == 0) {
+    long level = 0;
+    if (!parseLongToken(strtok(nullptr, " ,\t"), level) || level < 0 ||
+        level > 2) {
+      Serial.println("Usage: rl <0|1|2>, try rl 1 or rl 2");
+      return;
+    }
+    writeResponseLevel(static_cast<uint8_t>(level));
   } else if (strcmp(command, "i") == 0) {
     readIdentityBlock();
   } else if (strcmp(command, "f") == 0) {
@@ -805,6 +913,13 @@ void setup() {
   Serial.print(selectedServoId);
   Serial.print(" servo_baud=");
   Serial.println(SERVO_BAUD);
+  Serial.println("servo_port=Serial4 on Teensy 4.0 default TX4=17 RX4=16");
+  Serial.print("direction_pin=");
+  if (DIRECTION_PIN >= 0) {
+    Serial.println(DIRECTION_PIN);
+  } else {
+    Serial.println("none");
+  }
 
   runBootTests();
   printHelp();
