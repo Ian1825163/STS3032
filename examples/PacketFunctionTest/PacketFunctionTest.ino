@@ -20,6 +20,9 @@ static const uint16_t PACKET_TIMEOUT_MS = 30;
 static const uint16_t CENTER_TICK = 2048;
 static const uint16_t DEFAULT_POSITION_SPEED = 1000;
 static const uint8_t DEFAULT_ACCELERATION = 0;
+static const float SPEED_UNIT_RPM = 0.732f;
+static const float SPEED_UNIT_DEG_PER_SEC = SPEED_UNIT_RPM * 6.0f;
+static const float CURRENT_UNIT_A = 0.0065f;
 static const float SWEEP_AMPLITUDE_DEG = 90.0f; // -90 to +90 = 180 deg total
 static const uint32_t SWEEP_INTERVAL_MS = 1200;
 
@@ -76,6 +79,28 @@ int16_t clampSignedSpeed(long speed) {
 
 uint8_t clampAcceleration(long acceleration) {
   return static_cast<uint8_t>(clampLong(acceleration, 0, 254));
+}
+
+uint16_t makeWord(uint8_t low, uint8_t high) {
+  return static_cast<uint16_t>(low) | (static_cast<uint16_t>(high) << 8);
+}
+
+float speedRawToRpm(int16_t speedRaw) {
+  return speedRaw * SPEED_UNIT_RPM;
+}
+
+float speedRawToDegPerSecond(int16_t speedRaw) {
+  return speedRaw * SPEED_UNIT_DEG_PER_SEC;
+}
+
+int16_t degPerSecondToSpeedRaw(float speedDegPerSecond) {
+  const long raw = static_cast<long>(lroundf(speedDegPerSecond /
+                                            SPEED_UNIT_DEG_PER_SEC));
+  return clampSignedSpeed(raw);
+}
+
+float currentRawToAmp(int16_t currentRaw) {
+  return currentRaw * CURRENT_UNIT_A;
 }
 
 void printHexByte(uint8_t value) {
@@ -233,13 +258,13 @@ bool readFeedbackOnce() {
   Serial.print("position_tick=");
   Serial.print(feedback.position_tick);
   Serial.print(" position_deg=");
-  Serial.print(feedback.position_deg, 2);
+  Serial.print(feedback.position_tick * (360.0f / 4096.0f), 2);
   Serial.print(" speed_raw=");
   Serial.print(feedback.speed_raw);
   Serial.print(" speed_rpm=");
-  Serial.print(feedback.speed_rpm, 2);
+  Serial.print(speedRawToRpm(feedback.speed_raw), 2);
   Serial.print(" speed_deg_s=");
-  Serial.print(feedback.speed_deg_s, 1);
+  Serial.print(speedRawToDegPerSecond(feedback.speed_raw), 1);
   Serial.print(" load_raw=");
   Serial.print(feedback.load_raw);
   Serial.print(" voltage_v=");
@@ -264,12 +289,14 @@ bool readPositionTest() {
   printPacketPreview(selectedServoId, STS3032::INST_READ, readParams,
                      sizeof(readParams));
 
-  uint16_t positionTick = 0;
-  if (!servo.readPosition(selectedServoId, positionTick)) {
+  uint8_t data[2] = {0, 0};
+  if (!servo.readBytes(selectedServoId, STS3032::REG_PRESENT_POSITION_L, data,
+                       sizeof(data))) {
     Serial.println("READ position failed");
     return false;
   }
 
+  const uint16_t positionTick = makeWord(data[0], data[1]);
   Serial.print("position_tick=");
   Serial.print(positionTick);
   Serial.print(" position_deg=");
@@ -285,17 +312,20 @@ bool readVelocityTest() {
                      sizeof(readParams));
 
   int16_t speedRaw = 0;
-  if (!servo.readVelocity(selectedServoId, speedRaw)) {
+  uint8_t data[2] = {0, 0};
+  if (!servo.readBytes(selectedServoId, STS3032::REG_PRESENT_SPEED_L, data,
+                       sizeof(data))) {
     Serial.println("READ angular velocity failed");
     return false;
   }
+  speedRaw = STS3032::decodeSigned15(makeWord(data[0], data[1]));
 
   Serial.print("speed_raw=");
   Serial.print(speedRaw);
   Serial.print(" speed_rpm=");
-  Serial.print(STS3032::speedRawToRpm(speedRaw), 2);
+  Serial.print(speedRawToRpm(speedRaw), 2);
   Serial.print(" speed_deg_s=");
-  Serial.println(STS3032::speedRawToDegPerSecond(speedRaw), 1);
+  Serial.println(speedRawToDegPerSecond(speedRaw), 1);
   return true;
 }
 
@@ -314,12 +344,11 @@ bool readCurrentTest() {
   }
 
   const int16_t currentRaw =
-      STS3032::decodeSigned15(static_cast<uint16_t>(data[0]) |
-                              (static_cast<uint16_t>(data[1]) << 8));
+      STS3032::decodeSigned15(makeWord(data[0], data[1]));
   Serial.print("current_raw=");
   Serial.print(currentRaw);
   Serial.print(" current_a=");
-  Serial.println(STS3032::currentRawToAmp(currentRaw), 3);
+  Serial.println(currentRawToAmp(currentRaw), 3);
   return true;
 }
 
@@ -331,7 +360,8 @@ bool readTemperatureTest() {
                      sizeof(readParams));
 
   uint8_t temperatureC = 0;
-  if (!servo.readTemperature(selectedServoId, temperatureC)) {
+  if (!servo.readBytes(selectedServoId, STS3032::REG_PRESENT_TEMPERATURE,
+                       &temperatureC, 1)) {
     Serial.println("READ temperature failed");
     return false;
   }
@@ -403,7 +433,7 @@ bool writeVelocitySpeedRaw(int16_t signedSpeedRaw) {
   Serial.print("WRITE velocity speed_raw=");
   Serial.print(signedSpeedRaw);
   Serial.print(" speed_deg_s=");
-  Serial.println(STS3032::speedRawToDegPerSecond(signedSpeedRaw), 1);
+  Serial.println(speedRawToDegPerSecond(signedSpeedRaw), 1);
   printPacketPreview(selectedServoId, STS3032::INST_WRITE, params,
                      sizeof(params));
 
@@ -479,7 +509,7 @@ bool commandVelocityRaw(int16_t signedSpeedRaw) {
 
 bool commandVelocityDegPerSecond(float speedDegPerSecond) {
   const int16_t speedRaw =
-      STS3032::degPerSecondToSpeedRaw(speedDegPerSecond);
+      degPerSecondToSpeedRaw(speedDegPerSecond);
   Serial.print("angular velocity command deg_s=");
   Serial.print(speedDegPerSecond, 1);
   Serial.print(" -> raw=");
