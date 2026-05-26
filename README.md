@@ -52,9 +52,24 @@ servo.setWriteAck(true);
 
 ## Packet Test Example
 
-`examples/PacketFunctionTest/PacketFunctionTest.ino` is a bring-up sketch for checking the packet layer on hardware. It defaults to `Serial4` for the STS3032 bus, matching the Teensy wiring style used in `doggy_ws`.
+`examples/PacketFunctionTest/PacketFunctionTest.ino` is a bring-up sketch for checking the packet layer and direct motor commands on hardware. It defaults to `Serial4` for the STS3032 bus, matching the Teensy wiring style used in `doggy_ws`.
 
-Open the USB serial monitor at `115200` baud. The sketch runs checksum, ping, identity read, and feedback read tests on boot. Press `h` in the serial monitor to show commands for re-running ping/read tests and sending a no-motion SYNC_WRITE using the current position as the goal.
+Open the USB serial monitor at `115200` baud and set line ending to `Newline`. Useful commands:
+
+```text
+id 3          select servo ID 3
+p             ping selected servo
+f             read feedback block
+t 2048 1000   set absolute position tick and speed
+a 90 800      set +90 degree offset from center at speed 800
+c 800         return to center
+v 1000        velocity mode continuous rotation
+v -1000       velocity mode opposite direction
+w 800         180 degree sweep around center
+x             stop velocity/sweep
+```
+
+Write commands use write-ack disabled by default, so `sent` means the Teensy wrote the packet to the servo bus. Use `p` or `f` to confirm the receive path works.
 
 ## Register Notes
 
