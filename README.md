@@ -8,49 +8,6 @@ Arduino/PlatformIO library for Feetech STS3032 serial servos.
 - Servo API layer: `setPosition()`, `setPositionSpeed()`, `readPosition()`, `readVelocity()`, `readAngularVelocity()`, `readCurrent()`, `readTemperature()`, `readFeedback()`, `torqueOn()`, `torqueOff()`, `setMode()`
 - Feedback decode: `position_tick`, `position_deg`, `speed_raw`, `speed_rpm`, `speed_deg_s`, `load_raw`, `voltage_v`, `temperature_c`, `status`, `moving`, `current_a`
 
-## Quick Start
-
-```cpp
-#include <STS3032.h>
-
-STS3032 servo;
-
-void setup() {
-  Serial.begin(115200);
-  servo.begin(Serial1, 1000000);
-
-  servo.torqueOn(1);
-  servo.setMode(1, STS3032::MODE_POSITION);
-  servo.setPositionSpeed(1, 2048, 1500);
-}
-
-void loop() {
-  STS3032::Feedback feedback;
-  if (servo.readFeedback(1, feedback)) {
-    Serial.print("pos=");
-    Serial.print(feedback.position_tick);
-    Serial.print(" deg=");
-    Serial.print(feedback.position_deg);
-    Serial.print(" speed_deg_s=");
-    Serial.print(feedback.speed_deg_s);
-    Serial.print(" voltage=");
-    Serial.println(feedback.voltage_v);
-  }
-  delay(100);
-}
-```
-
-For half-duplex RS485 adapters with a direction pin:
-
-```cpp
-servo.begin(Serial1, 1000000, 2); // TX enable pin 2, HIGH while sending
-```
-
-By default, write helpers do not wait for write status packets. Enable this if the servo response level is configured to return status packets for write instructions:
-
-```cpp
-servo.setWriteAck(true);
-```
 
 ## Packet Test Example
 
